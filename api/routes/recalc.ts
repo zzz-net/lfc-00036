@@ -44,6 +44,18 @@ router.post('/tasks', (req, res) => {
     return res.status(400).json({ error: 'start_date 和 end_date 必填' });
   }
 
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRe.test(start_date) || !dateRe.test(end_date)) {
+    return res.status(400).json({ error: '日期格式必须为 YYYY-MM-DD' });
+  }
+  if (new Date(start_date + 'T00:00:00').toString() === 'Invalid Date' ||
+      new Date(end_date + 'T00:00:00').toString() === 'Invalid Date') {
+    return res.status(400).json({ error: '日期无效' });
+  }
+  if (start_date > end_date) {
+    return res.status(400).json({ error: 'start_date 不能晚于 end_date' });
+  }
+
   let rules: GradeRule[];
   let resolvedRuleVersionId: number | null = null;
 

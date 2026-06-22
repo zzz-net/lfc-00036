@@ -254,8 +254,12 @@ export async function runRecalcTask(taskId: number): Promise<void> {
           class_name: newRec.class_name,
           anomaly_type: newRec.anomaly_type,
           anomaly_date: newRec.anomaly_date,
+          old_description: undefined,
           new_description: newRec.description,
+          old_status: undefined,
           new_status: newRec.status,
+          old_anomaly_id: undefined,
+          new_anomaly_id: undefined,
         });
       } else if (oldRec && !newRec) {
         removedCount++;
@@ -269,8 +273,11 @@ export async function runRecalcTask(taskId: number): Promise<void> {
           anomaly_type: oldRec.anomaly_type,
           anomaly_date: oldRec.anomaly_date,
           old_description: oldRec.description,
+          new_description: undefined,
           old_status: oldRec.status,
+          new_status: undefined,
           old_anomaly_id: oldRec.id,
+          new_anomaly_id: undefined,
         });
       } else if (oldRec && newRec) {
         const descChanged = oldRec.description !== newRec.description;
@@ -290,6 +297,7 @@ export async function runRecalcTask(taskId: number): Promise<void> {
           old_status: oldRec.status,
           new_status: newRec.status,
           old_anomaly_id: oldRec.id,
+          new_anomaly_id: undefined,
         });
       }
     }
