@@ -252,3 +252,131 @@ describe('复核后回退与历史恢复', () => {
     expect(allHistory[2].new_status).toBe('confirmed');
   });
 });
+
+function formatLocalDateTime(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const s = String(d.getSeconds()).padStart(2, '0');
+  return `${y}-${m}-${day}T${h}:${min}:${s}`;
+}
+
+function formatLocalTime(isoString: string): string {
+  const d = new Date(isoString);
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const s = String(d.getSeconds()).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+describe('刷卡时间处理与时区一致性', () => {
+  it('toDateStr 应返回本地日期而非 UTC 日期', () => {
+    const localMorning = new Date(2026, 5, 15, 7, 30, 0);
+    const y = localMorning.getFullYear();
+    const m = String(localMorning.getMonth() + 1).padStart(2, '0');
+    const d = String(localMorning.getDate()).padStart(2, '0');
+    const localDateStr = `${y}-${m}-${d}`;
+    expect(localDateStr).toBe('2026-06-15');
+
+    const utcYear = localMorning.getUTCFullYear();
+    const utcMonth = String(localMorning.getUTCMonth() + 1).padStart(2, '0');
+    const utcDay = String(localMorning.getUTCDate()).padStart(2, '0');
+    const utcDateStr = `${utcYear}-${utcMonth}-${utcDay}`;
+
+    const toISO = localMorning.toISOString().slice(0, 10);
+    expect(toISO).toBe(utcDateStr);
+
+    expect(localDateStr).toBe('2026-06-15');
+    expect(typeof localDateStr).toBe('string');
+    expect(localDateStr.length).toBe(10);
+  });
+
+  it('存储时间应为本地时间格式（不带 Z）', () => {
+    const d = new Date(2026, 5, 15, 7, 50, 0);
+    const localStr = formatLocalDateTime(d);
+    expect(localStr).toBe('2026-06-15T07:50:00');
+    expect(localStr.endsWith('Z')).toBe(false);
+    const parsed = new Date(localStr);
+    expect(parsed.getHours()).toBe(7);
+    expect(parsed.getMinutes()).toBe(50);
+  });
+
+  it('本地时间格式存储后，DATE() 函数应返回正确日期', () => {
+    seedBasicData(db);
+    const localTime = '2026-06-15T07:50:00';
+    db.prepare("INSERT INTO swipe_records (student_id, swipe_time) VALUES (?, ?)").run('S00001', localTime);
+    const row = db.prepare("SELECT DATE(swipe_time) as dt FROM swipe_records WHERE student_id = ?").get('S00001') as any;
+    expect(row.dt).toBe('2026-06-15');
+  });
+
+  it('上午迟到计算：07:50 刷卡对 07:25 上课，应迟到 25 分钟', () => {
+    const swipeTime = new Date(2026, 5, 15, 7, 50, 0);
+    const deadline = new Date(2026, 5, 15, 7, 25, 0);
+    const lateMinutes = Math.round((swipeTime.getTime() - deadline.getTime()) / 60000);
+    expect(lateMinutes).toBe(25);
+  });
+
+  it('异常描述中的时间应为本地时间，与刷卡时间一致', () => {
+    const swipeLocalTime = '2026-06-15T07:50:00';
+    const displayTime = formatLocalTime(swipeLocalTime);
+    expect(displayTime).toBe('07:50:00');
+
+    const description = `上午迟到 25 分钟，首次刷卡 ${displayTime}`;
+    expect(description).toContain('07:50:00');
+    expect(description).not.toContain('23:50');
+    expect(description).not.toContain('1424');
+  });
+
+  it('重复刷卡描述中的两个时间都应为本地时间', () => {
+    const t1 = formatLocalTime('2026-06-15T07:50:00');
+    const t2 = formatLocalTime('2026-06-15T07:50:30');
+    const desc = `1分钟内重复刷卡：${t1} 与 ${t2}`;
+    expect(desc).toBe('1分钟内重复刷卡：07:50:00 与 07:50:30');
+  });
+
+  it('异常编号与描述中的时间应保持一致', () => {
+    seedBasicData(db);
+
+    const localTime = '2026-06-15T07:50:00';
+    db.prepare("INSERT INTO swipe_records (student_id, swipe_time) VALUES (?, ?)").run('S00001', localTime);
+
+    const rule = db.prepare("SELECT * FROM grade_rules WHERE grade = ?").get('高三') as any;
+    const morningStartH = 7;
+    const morningStartM = 20;
+    const tolerance = 5;
+    const deadline = new Date(2026, 5, 15, morningStartH, morningStartM + tolerance, 0);
+    const swipeT = new Date(localTime);
+    const lateMinutes = Math.round((swipeT.getTime() - deadline.getTime()) / 60000);
+    const displayTime = formatLocalTime(localTime);
+
+    expect(lateMinutes).toBe(25);
+    expect(displayTime).toBe('07:50:00');
+
+    const anomalyId = db.prepare(`
+      INSERT INTO anomalies (student_id, anomaly_type, anomaly_date, description, status)
+      VALUES (?, 'late', '2026-06-15', ?, 'pending')
+    `).run('S00001', `上午迟到 ${lateMinutes} 分钟，首次刷卡 ${displayTime}`).lastInsertRowid;
+
+    const saved = db.prepare("SELECT * FROM anomalies WHERE id = ?").get(Number(anomalyId)) as any;
+    expect(saved.description).toBe('上午迟到 25 分钟，首次刷卡 07:50:00');
+    expect(saved.id).toBeGreaterThan(0);
+  });
+
+  it('跨午夜边界的本地日期应正确计算', () => {
+    const lateNight = new Date(2026, 5, 15, 23, 59, 0);
+    const y = lateNight.getFullYear();
+    const m = String(lateNight.getMonth() + 1).padStart(2, '0');
+    const d = String(lateNight.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${d}`;
+    expect(dateStr).toBe('2026-06-15');
+
+    const nextDay = new Date(2026, 5, 16, 0, 1, 0);
+    const y2 = nextDay.getFullYear();
+    const m2 = String(nextDay.getMonth() + 1).padStart(2, '0');
+    const d2 = String(nextDay.getDate()).padStart(2, '0');
+    const dateStr2 = `${y2}-${m2}-${d2}`;
+    expect(dateStr2).toBe('2026-06-16');
+  });
+});

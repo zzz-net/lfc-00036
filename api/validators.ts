@@ -9,9 +9,20 @@ function isValidDateTime(s: string): boolean {
 
 function parseDateTime(s: string): Date | null {
   if (!s) return null;
-  const d = new Date(s);
+  const normalized = s.replace(' ', 'T');
+  const d = new Date(normalized);
   if (isNaN(d.getTime())) return null;
   return d;
+}
+
+function formatLocalDateTime(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const s = String(d.getSeconds()).padStart(2, '0');
+  return `${y}-${m}-${day}T${h}:${min}:${s}`;
 }
 
 export function validateSwipeRecords(rows: Record<string, unknown>[]): ImportValidationResult & { validRecords: SwipeRecord[] } {
@@ -94,8 +105,8 @@ export function validateSwipeRecords(rows: Record<string, unknown>[]): ImportVal
     }
     seenCombos.add(comboKey);
 
-    const isoTime = swipeDate.toISOString();
-    if (swipeRepo.existsDuplicate(studentId, isoTime)) {
+    const localTime = formatLocalDateTime(swipeDate);
+    if (swipeRepo.existsDuplicate(studentId, localTime)) {
       errors.push({
         row_number: rowNumber,
         student_id: studentId,
@@ -109,7 +120,7 @@ export function validateSwipeRecords(rows: Record<string, unknown>[]): ImportVal
     studentsFound.add(studentId);
     validRecords.push({
       student_id: studentId,
-      swipe_time: isoTime,
+      swipe_time: localTime,
       device_location: row.device_location ? String(row.device_location) : undefined,
     });
   });
@@ -206,8 +217,8 @@ export function validateLeaveRecords(rows: Record<string, unknown>[]): ImportVal
     validRecords.push({
       student_id: studentId,
       leave_type: normalizedType,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
+      start_time: formatLocalDateTime(start),
+      end_time: formatLocalDateTime(end),
       reason: row.reason ? String(row.reason) : undefined,
     });
   });

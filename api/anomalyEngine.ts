@@ -9,7 +9,18 @@ import db from './db';
 import type { Anomaly, AnomalyType, GradeRule, LeaveRecord, SwipeRecord } from '../shared/types';
 
 function toDateStr(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function formatLocalTime(isoString: string): string {
+  const d = new Date(isoString);
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const s = String(d.getSeconds()).padStart(2, '0');
+  return `${h}:${m}:${s}`;
 }
 
 function parseTime(hhmm: string): { h: number; m: number } {
@@ -67,12 +78,11 @@ export function detectAnomaliesForDate(date: string): Array<Omit<Anomaly, 'id' |
     const leaves = filterCoveringLeaves(leaveRepo.getByStudentAndDate(student.student_id, date));
 
     const morningStart = parseTime(rule.morning_start_time);
-    const morningDeadline = new Date(date + 'T00:00:00');
-    morningDeadline.setHours(morningStart.h, morningStart.m + rule.late_tolerance_minutes, 0, 0);
+    const [y, m, d] = date.split('-').map(Number);
+    const morningDeadline = new Date(y, m - 1, d, morningStart.h, morningStart.m + rule.late_tolerance_minutes, 0, 0);
 
     const afternoonStart = parseTime(rule.afternoon_start_time);
-    const afternoonDeadline = new Date(date + 'T00:00:00');
-    afternoonDeadline.setHours(afternoonStart.h, afternoonStart.m + rule.late_tolerance_minutes, 0, 0);
+    const afternoonDeadline = new Date(y, m - 1, d, afternoonStart.h, afternoonStart.m + rule.late_tolerance_minutes, 0, 0);
 
     const absentWindowMs = rule.absent_window_minutes * 60 * 1000;
 
@@ -100,7 +110,7 @@ export function detectAnomaliesForDate(date: string): Array<Omit<Anomaly, 'id' |
             student_id: student.student_id,
             anomaly_type: 'duplicate_swipe' as AnomalyType,
             anomaly_date: date,
-            description: `1分钟内重复刷卡：${prev.swipe_time.slice(11, 19)} 与 ${sw.swipe_time.slice(11, 19)}`,
+            description: `1分钟内重复刷卡：${formatLocalTime(prev.swipe_time)} 与 ${formatLocalTime(sw.swipe_time)}`,
             status: 'pending',
           });
           continue;
@@ -118,7 +128,7 @@ export function detectAnomaliesForDate(date: string): Array<Omit<Anomaly, 'id' |
           student_id: student.student_id,
           anomaly_type: 'late' as AnomalyType,
           anomaly_date: date,
-          description: `上午迟到 ${lateMinutes} 分钟，首次刷卡 ${firstMorningSwipe.swipe_time.slice(11, 19)}`,
+          description: `上午迟到 ${lateMinutes} 分钟，首次刷卡 ${formatLocalTime(firstMorningSwipe.swipe_time)}`,
           status: 'pending',
         });
       }
@@ -133,7 +143,7 @@ export function detectAnomaliesForDate(date: string): Array<Omit<Anomaly, 'id' |
           student_id: student.student_id,
           anomaly_type: 'late' as AnomalyType,
           anomaly_date: date,
-          description: `下午迟到 ${lateMinutes} 分钟，首次刷卡 ${firstAfternoonSwipe.swipe_time.slice(11, 19)}`,
+          description: `下午迟到 ${lateMinutes} 分钟，首次刷卡 ${formatLocalTime(firstAfternoonSwipe.swipe_time)}`,
           status: 'pending',
         });
       }
@@ -179,7 +189,7 @@ export function detectAnomaliesForDate(date: string): Array<Omit<Anomaly, 'id' |
               student_id: student.student_id,
               anomaly_type: 'leave_exception' as AnomalyType,
               anomaly_date: date,
-              description: `请假期间出现刷卡记录：${sw.swipe_time.slice(11, 19)}（请假 ${lv.start_time.slice(11, 19)} - ${lv.end_time.slice(11, 19)}）`,
+              description: `请假期间出现刷卡记录：${formatLocalTime(sw.swipe_time)}（请假 ${formatLocalTime(lv.start_time)} - ${formatLocalTime(lv.end_time)}）`,
               status: 'pending',
             });
           }
