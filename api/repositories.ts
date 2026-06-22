@@ -256,8 +256,31 @@ export const anomalyRepo = {
     `).run(status, note || null, reviewedBy || null, id);
   },
 
+  restoreStatus(id: number, status: string, note: string | null, reviewedBy: string | null, reviewedAt: string | null): void {
+    db.prepare(`
+      UPDATE anomalies
+      SET status = ?, review_note = ?, reviewed_by = ?, reviewed_at = ?
+      WHERE id = ?
+    `).run(status, note, reviewedBy, reviewedAt, id);
+  },
+
   clearAll(): void {
+    db.prepare('DELETE FROM review_histories').run();
     db.prepare('DELETE FROM anomalies').run();
+  },
+
+  clearPending(): void {
+    db.prepare('DELETE FROM review_histories WHERE anomaly_id IN (SELECT id FROM anomalies WHERE status = ?)').run('pending');
+    db.prepare('DELETE FROM anomalies WHERE status = ?').run('pending');
+  },
+
+  getReviewed(): Anomaly[] {
+    return db.prepare("SELECT * FROM anomalies WHERE status != 'pending'").all() as Anomaly[];
+  },
+
+  getReviewedKeys(): Set<string> {
+    const rows = db.prepare("SELECT student_id, anomaly_type, anomaly_date FROM anomalies WHERE status != 'pending'").all() as { student_id: string; anomaly_type: string; anomaly_date: string }[];
+    return new Set(rows.map(r => `${r.student_id}__${r.anomaly_type}__${r.anomaly_date}`));
   },
 
   getCountsByStatus(): Record<string, number> {
@@ -281,7 +304,7 @@ export const reviewHistoryRepo = {
     return db.prepare(`
       SELECT * FROM review_histories
       WHERE anomaly_id = ?
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC, id DESC
     `).all(anomalyId) as ReviewHistory[];
   },
 };

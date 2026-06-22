@@ -192,10 +192,12 @@ export function detectAnomaliesForDate(date: string): Array<Omit<Anomaly, 'id' |
 }
 
 export function detectAnomaliesInRange(startDate: string, endDate: string): number {
-  anomalyRepo.clearAll();
+  const reviewedKeys = anomalyRepo.getReviewedKeys();
+
+  anomalyRepo.clearPending();
+
   const start = new Date(startDate + 'T00:00:00');
   const end = new Date(endDate + 'T00:00:00');
-  let total = 0;
 
   const all: Array<Omit<Anomaly, 'id' | 'created_at'>> = [];
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -204,11 +206,14 @@ export function detectAnomaliesInRange(startDate: string, endDate: string): numb
     all.push(...anomalies);
   }
 
-  if (all.length > 0) {
-    anomalyRepo.bulkInsert(all);
-    total = all.length;
+  const newAnomalies = all.filter(a => !reviewedKeys.has(`${a.student_id}__${a.anomaly_type}__${a.anomaly_date}`));
+
+  if (newAnomalies.length > 0) {
+    anomalyRepo.bulkInsert(newAnomalies);
   }
-  return total;
+
+  const reviewedCount = db.prepare("SELECT COUNT(*) as cnt FROM anomalies WHERE status != 'pending'").get() as { cnt: number };
+  return newAnomalies.length + reviewedCount.cnt;
 }
 
 export function autoDetectFromExistingData(): { total: number; dateRange: { start: string; end: string } | null } {

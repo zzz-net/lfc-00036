@@ -3,6 +3,28 @@ import { anomalyRepo, reviewHistoryRepo, swipeRepo, leaveRepo } from '../reposit
 import { autoDetectFromExistingData, detectAnomaliesInRange } from '../anomalyEngine';
 import type { AnomalyFilters, AnomalyStatus } from '../../shared/types';
 
+function findRestoreState(anomalyId: number, currentStatus: AnomalyStatus): {
+  status: AnomalyStatus;
+  note: string | null;
+  operator: string | null;
+  reviewedAt: string | null;
+} {
+  const history = reviewHistoryRepo.getByAnomalyId(anomalyId);
+  if (history.length === 0) {
+    return { status: 'pending', note: null, operator: null, reviewedAt: null };
+  }
+  const prevStatus = (history[0].old_status as AnomalyStatus) || 'pending';
+  if (prevStatus === 'pending') {
+    return { status: 'pending', note: null, operator: null, reviewedAt: null };
+  }
+  for (const h of history) {
+    if (h.new_status === prevStatus) {
+      return { status: prevStatus, note: h.note || null, operator: h.operator || null, reviewedAt: h.created_at };
+    }
+  }
+  return { status: prevStatus, note: null, operator: null, reviewedAt: null };
+}
+
 const router = Router();
 
 router.get('/', (req, res) => {
@@ -47,16 +69,28 @@ router.post('/:id/review', (req, res) => {
   if (!anomaly) {
     return res.status(404).json({ error: '异常记录不存在' });
   }
+  const oldStatus = anomaly.status;
+
+  if (action === 'revert') {
+    const restore = findRestoreState(id, oldStatus);
+    anomalyRepo.restoreStatus(id, restore.status, restore.note, restore.operator, restore.reviewedAt);
+    reviewHistoryRepo.insert({
+      anomaly_id: id,
+      action: 'revert',
+      old_status: oldStatus,
+      new_status: restore.status,
+      note,
+      operator,
+    });
+    return res.json({ id, status: restore.status, restored_from: oldStatus });
+  }
+
   let newStatus: AnomalyStatus = 'confirmed';
-  let actionType: 'review' | 'revert' | 'dismiss' = 'review';
+  let actionType: 'review' | 'dismiss' = 'review';
   if (action === 'dismiss') {
     newStatus = 'dismissed';
     actionType = 'dismiss';
-  } else if (action === 'revert') {
-    newStatus = 'reverted';
-    actionType = 'revert';
   }
-  const oldStatus = anomaly.status;
   anomalyRepo.updateStatus(id, newStatus, note, operator);
   reviewHistoryRepo.insert({
     anomaly_id: id,
@@ -77,16 +111,17 @@ router.post('/:id/revert', (req, res) => {
     return res.status(404).json({ error: '异常记录不存在' });
   }
   const oldStatus = anomaly.status;
-  anomalyRepo.updateStatus(id, 'reverted', note, operator);
+  const restore = findRestoreState(id, oldStatus);
+  anomalyRepo.restoreStatus(id, restore.status, restore.note, restore.operator, restore.reviewedAt);
   reviewHistoryRepo.insert({
     anomaly_id: id,
     action: 'revert',
     old_status: oldStatus,
-    new_status: 'reverted',
+    new_status: restore.status,
     note,
     operator,
   });
-  res.json({ id, status: 'reverted' });
+  res.json({ id, status: restore.status, restored_from: oldStatus });
 });
 
 router.post('/redetect', (req, res) => {

@@ -407,7 +407,7 @@ export default function AnomalyWorkbench() {
                 />
               </div>
 
-              {detail.anomaly.status === 'pending' && (
+              {(detail.anomaly.status === 'pending') && (
                 <div className="flex gap-2 pt-2">
                   <button onClick={() => onReview('confirm')} disabled={submitting} className="btn-success flex-1 gap-1.5">
                     <CheckCircle className="w-4 h-4" />
@@ -419,10 +419,10 @@ export default function AnomalyWorkbench() {
                   </button>
                 </div>
               )}
-              {detail.anomaly.status === 'confirmed' && (
+              {(detail.anomaly.status === 'confirmed' || detail.anomaly.status === 'dismissed') && (
                 <button onClick={() => onReview('revert')} disabled={submitting} className="btn-danger w-full gap-1.5">
                   <RotateCcw className="w-4 h-4" />
-                  回退此结论（标记误判）
+                  回退此结论（恢复为上一状态）
                 </button>
               )}
 
