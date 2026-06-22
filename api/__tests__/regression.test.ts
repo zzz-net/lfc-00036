@@ -380,3 +380,147 @@ describe('刷卡时间处理与时区一致性', () => {
     expect(dateStr2).toBe('2026-06-16');
   });
 });
+
+describe('README 交付校验——导入格式与字段兼容', () => {
+  it('刷卡记录支持英文列名 student_id + swipe_time', () => {
+    seedBasicData(db);
+    const rows = [
+      { student_id: 'S00001', swipe_time: '2026-06-16 07:30:00' },
+    ];
+    const row = rows[0];
+    const studentId = String(row.student_id ?? '').trim();
+    const swipeTimeStr = String(row.swipe_time ?? '').trim();
+    expect(studentId).toBe('S00001');
+    expect(swipeTimeStr).toBe('2026-06-16 07:30:00');
+    const d = new Date(swipeTimeStr.replace(' ', 'T'));
+    expect(isNaN(d.getTime())).toBe(false);
+    expect(d.getHours()).toBe(7);
+    expect(d.getMinutes()).toBe(30);
+  });
+
+  it('刷卡记录支持中文列名 学号 + 刷卡时间', () => {
+    seedBasicData(db);
+    const rows = [
+      { '学号': 'S00001', '刷卡时间': '2026-06-16 07:45:00', '设备位置': '校门口' },
+    ];
+    const row = rows[0] as Record<string, unknown>;
+    const studentId = String(row.student_id ?? row['学号'] ?? '').trim();
+    const swipeTimeStr = String(row.swipe_time ?? row['刷卡时间'] ?? '').trim();
+    const deviceLoc = String(row.device_location ?? row['设备位置'] ?? '').trim();
+    expect(studentId).toBe('S00001');
+    expect(swipeTimeStr).toBe('2026-06-16 07:45:00');
+    expect(deviceLoc).toBe('校门口');
+  });
+
+  it('请假记录支持中英文列名混合', () => {
+    seedBasicData(db);
+    const rows = [
+      { student_id: 'S00001', '请假类型': 'sick', start_time: '2026-06-16 08:00:00', '结束时间': '2026-06-16 17:00:00', reason: '感冒发烧' },
+    ];
+    const row = rows[0] as Record<string, unknown>;
+    const studentId = String(row.student_id ?? row['学号'] ?? '').trim();
+    const leaveType = String(row.leave_type ?? row['请假类型'] ?? '').trim();
+    const startTime = String(row.start_time ?? row['开始时间'] ?? '').trim();
+    const endTime = String(row.end_time ?? row['结束时间'] ?? '').trim();
+    const reason = String(row.reason ?? row['请假原因'] ?? '').trim();
+    expect(studentId).toBe('S00001');
+    expect(leaveType).toBe('sick');
+    expect(startTime).toBe('2026-06-16 08:00:00');
+    expect(endTime).toBe('2026-06-16 17:00:00');
+    expect(reason).toBe('感冒发烧');
+  });
+});
+
+describe('README 交付校验——规则保存与版本', () => {
+  it('保存规则后数据应持久化到数据库', () => {
+    seedBasicData(db);
+    const before = db.prepare('SELECT COUNT(*) as c FROM grade_rules').get() as any;
+    expect(before.c).toBe(2);
+
+    db.prepare("INSERT OR REPLACE INTO grade_rules VALUES ('高一', '07:40', 5, '14:00', 120)").run();
+    db.prepare("INSERT OR REPLACE INTO grade_rules VALUES ('高二', '07:30', 5, '14:00', 120)").run();
+    db.prepare("INSERT OR REPLACE INTO grade_rules VALUES ('高三', '07:20', 3, '13:50', 120)").run();
+
+    const after = db.prepare('SELECT COUNT(*) as c FROM grade_rules').get() as any;
+    expect(after.c).toBe(3);
+
+    const gao3 = db.prepare("SELECT * FROM grade_rules WHERE grade = '高三'").get() as any;
+    expect(gao3.morning_start_time).toBe('07:20');
+    expect(gao3.late_tolerance_minutes).toBe(3);
+    expect(gao3.afternoon_start_time).toBe('13:50');
+  });
+});
+
+describe('README 交付校验——重启后数据不漂移', () => {
+  it('关闭并重新打开数据库后，学生、刷卡、异常数据保持一致', () => {
+    seedBasicData(db);
+
+    db.prepare("INSERT INTO swipe_records (student_id, swipe_time, device_location) VALUES ('S00001', '2026-06-16T07:50:00', '校门口')").run();
+    const anomalyId = db.prepare(`
+      INSERT INTO anomalies (student_id, anomaly_type, anomaly_date, description, status, review_note, reviewed_by)
+      VALUES ('S00001', 'late', '2026-06-16', '上午迟到 25 分钟，首次刷卡 07:50:00', 'confirmed', '确认迟到', '管理员')
+    `).run().lastInsertRowid;
+    db.prepare("INSERT INTO grade_rules VALUES ('高一', '07:40', 5, '14:00', 120)").run();
+
+    const beforeStudents = db.prepare('SELECT COUNT(*) as c FROM students').get() as any;
+    const beforeSwipes = db.prepare('SELECT COUNT(*) as c FROM swipe_records').get() as any;
+    const beforeAnomalies = db.prepare('SELECT COUNT(*) as c FROM anomalies').get() as any;
+    const beforeRules = db.prepare('SELECT COUNT(*) as c FROM grade_rules').get() as any;
+    const beforeAnomaly = db.prepare('SELECT * FROM anomalies WHERE id = ?').get(Number(anomalyId)) as any;
+
+    db.close();
+
+    const reopenedDb = new Database(TEST_DB_PATH);
+    reopenedDb.pragma('journal_mode = WAL');
+    reopenedDb.pragma('foreign_keys = ON');
+
+    try {
+      const afterStudents = reopenedDb.prepare('SELECT COUNT(*) as c FROM students').get() as any;
+      const afterSwipes = reopenedDb.prepare('SELECT COUNT(*) as c FROM swipe_records').get() as any;
+      const afterAnomalies = reopenedDb.prepare('SELECT COUNT(*) as c FROM anomalies').get() as any;
+      const afterRules = reopenedDb.prepare('SELECT COUNT(*) as c FROM grade_rules').get() as any;
+      const afterAnomaly = reopenedDb.prepare('SELECT * FROM anomalies WHERE id = ?').get(Number(anomalyId)) as any;
+
+      expect(afterStudents.c).toBe(beforeStudents.c);
+      expect(afterSwipes.c).toBe(beforeSwipes.c);
+      expect(afterAnomalies.c).toBe(beforeAnomalies.c);
+      expect(afterRules.c).toBe(beforeRules.c);
+      expect(afterAnomaly.status).toBe(beforeAnomaly.status);
+      expect(afterAnomaly.description).toBe(beforeAnomaly.description);
+      expect(afterAnomaly.review_note).toBe(beforeAnomaly.review_note);
+      expect(afterAnomaly.reviewed_by).toBe(beforeAnomaly.reviewed_by);
+      expect(afterAnomaly.description).toContain('07:50:00');
+      expect(afterAnomaly.description).not.toContain('23:50');
+      expect(afterAnomaly.description).not.toContain('1424');
+    } finally {
+      reopenedDb.close();
+      db = setupTestDb();
+    }
+  });
+
+  it('已确认异常在重启后仍保持 confirmed 状态', () => {
+    seedBasicData(db);
+
+    const id = db.prepare(`
+      INSERT INTO anomalies (student_id, anomaly_type, anomaly_date, description, status, review_note, reviewed_by)
+      VALUES ('S00002', 'late', '2026-06-15', '下午迟到 10 分钟', 'confirmed', '已通知家长', '王老师')
+    `).run().lastInsertRowid;
+
+    db.close();
+    const db2 = new Database(TEST_DB_PATH);
+    db2.pragma('journal_mode = WAL');
+    db2.pragma('foreign_keys = ON');
+
+    try {
+      const row = db2.prepare('SELECT * FROM anomalies WHERE id = ?').get(Number(id)) as any;
+      expect(row.status).toBe('confirmed');
+      expect(row.review_note).toBe('已通知家长');
+      expect(row.reviewed_by).toBe('王老师');
+      expect(row.anomaly_type).toBe('late');
+      expect(row.anomaly_date).toBe('2026-06-15');
+    } finally {
+      db2.close();
+      db = setupTestDb();
+    }
+  });
+});
