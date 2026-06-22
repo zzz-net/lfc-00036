@@ -15,6 +15,7 @@ import anomalyRoutes from './routes/anomalies'
 import ruleRoutes from './routes/rules'
 import exportRoutes from './routes/export'
 import statisticsRoutes from './routes/statistics'
+import recalcRoutes from './routes/recalc'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -33,6 +34,7 @@ app.use('/api/anomalies', anomalyRoutes)
 app.use('/api/rules', ruleRoutes)
 app.use('/api/export', exportRoutes)
 app.use('/api/statistics', statisticsRoutes)
+app.use('/api/recalc', recalcRoutes)
 
 app.use(
   '/api/health',

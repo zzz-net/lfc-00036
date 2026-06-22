@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { exportAnomaliesCsv, exportSummaryCsv } from '../exporters';
+import { exportAnomaliesCsv, exportSummaryCsv, exportRecalcDiffCsv, exportRecalcSummaryCsv } from '../exporters';
 import type { AnomalyFilters } from '../../shared/types';
 
 const router = Router();
@@ -29,6 +29,22 @@ router.get('/summary', (req, res) => {
   const csv = exportSummaryCsv(filters);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="summary_${Date.now()}.csv"`);
+  res.send(csv);
+});
+
+router.get('/recalc/:id/diff', (req, res) => {
+  const id = parseInt(req.params.id);
+  const csv = exportRecalcDiffCsv(id);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="recalc_${id}_diff_${Date.now()}.csv"`);
+  res.send(csv);
+});
+
+router.get('/recalc/:id/summary', (req, res) => {
+  const id = parseInt(req.params.id);
+  const csv = exportRecalcSummaryCsv(id);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="recalc_${id}_summary_${Date.now()}.csv"`);
   res.send(csv);
 });
 

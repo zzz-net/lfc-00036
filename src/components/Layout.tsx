@@ -6,6 +6,7 @@ import {
   Settings,
   BarChart3,
   GraduationCap,
+  GitCompare,
 } from 'lucide-react';
 import { Toaster } from './Toast';
 
@@ -14,6 +15,7 @@ const navItems = [
   { path: '/import', icon: Upload, label: '数据导入' },
   { path: '/anomalies', icon: AlertTriangle, label: '异常分析' },
   { path: '/rules', icon: Settings, label: '规则配置' },
+  { path: '/impact', icon: GitCompare, label: '规则影响分析' },
   { path: '/reports', icon: BarChart3, label: '统计报表' },
 ];
 

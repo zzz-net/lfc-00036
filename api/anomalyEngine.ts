@@ -238,3 +238,140 @@ export function autoDetectFromExistingData(): { total: number; dateRange: { star
   const total = detectAnomaliesInRange(rows.min_date, rows.max_date);
   return { total, dateRange: { start: rows.min_date, end: rows.max_date } };
 }
+
+export function detectAnomaliesForDateWithRules(date: string, rules: GradeRule[]): Array<Omit<Anomaly, 'id' | 'created_at'>> {
+  const results: Array<Omit<Anomaly, 'id' | 'created_at'>> = [];
+  const students = studentRepo.getAll();
+  const ruleMap = new Map<string, GradeRule>();
+  rules.forEach(r => ruleMap.set(r.grade, r));
+
+  const defaultRule: GradeRule = {
+    grade: '__default',
+    morning_start_time: '08:00',
+    late_tolerance_minutes: 5,
+    afternoon_start_time: '14:00',
+    absent_window_minutes: 120,
+  };
+
+  for (const student of students) {
+    const rule = ruleMap.get(student.grade) || defaultRule;
+    const swipes = swipeRepo.getByStudentAndDate(student.student_id, date);
+    const leaves = filterCoveringLeaves(leaveRepo.getByStudentAndDate(student.student_id, date));
+
+    const morningStart = parseTime(rule.morning_start_time);
+    const [y, m, d] = date.split('-').map(Number);
+    const morningDeadline = new Date(y, m - 1, d, morningStart.h, morningStart.m + rule.late_tolerance_minutes, 0, 0);
+
+    const afternoonStart = parseTime(rule.afternoon_start_time);
+    const afternoonDeadline = new Date(y, m - 1, d, afternoonStart.h, afternoonStart.m + rule.late_tolerance_minutes, 0, 0);
+
+    const absentWindowMs = rule.absent_window_minutes * 60 * 1000;
+
+    const morningSwipes = swipes.filter(s => {
+      const t = new Date(s.swipe_time);
+      return t.getHours() < 12;
+    });
+    const afternoonSwipes = swipes.filter(s => {
+      const t = new Date(s.swipe_time);
+      return t.getHours() >= 12;
+    });
+
+    const firstMorningSwipe = morningSwipes[0];
+    const firstAfternoonSwipe = afternoonSwipes[0];
+
+    const seenMinutes = new Map<string, SwipeRecord>();
+    for (const sw of swipes) {
+      const t = new Date(sw.swipe_time);
+      const minuteKey = `${t.getHours()}-${t.getMinutes()}`;
+      if (seenMinutes.has(minuteKey)) {
+        const prev = seenMinutes.get(minuteKey)!;
+        if (Math.abs(new Date(sw.swipe_time).getTime() - new Date(prev.swipe_time).getTime()) < 60 * 1000) {
+          results.push({
+            student_id: student.student_id,
+            anomaly_type: 'duplicate_swipe' as AnomalyType,
+            anomaly_date: date,
+            description: `1分钟内重复刷卡：${formatLocalTime(prev.swipe_time)} 与 ${formatLocalTime(sw.swipe_time)}`,
+            status: 'pending',
+          });
+          continue;
+        }
+      }
+      seenMinutes.set(minuteKey, sw);
+    }
+
+    if (firstMorningSwipe) {
+      const swipeT = new Date(firstMorningSwipe.swipe_time);
+      if (swipeT > morningDeadline && !isLeaveCovers(leaves, date, true, false)) {
+        const lateMinutes = Math.round((swipeT.getTime() - morningDeadline.getTime()) / 60000);
+        results.push({
+          student_id: student.student_id,
+          anomaly_type: 'late' as AnomalyType,
+          anomaly_date: date,
+          description: `上午迟到 ${lateMinutes} 分钟，首次刷卡 ${formatLocalTime(firstMorningSwipe.swipe_time)}`,
+          status: 'pending',
+        });
+      }
+    }
+
+    if (firstAfternoonSwipe) {
+      const swipeT = new Date(firstAfternoonSwipe.swipe_time);
+      if (swipeT > afternoonDeadline && !isLeaveCovers(leaves, date, false, true)) {
+        const lateMinutes = Math.round((swipeT.getTime() - afternoonDeadline.getTime()) / 60000);
+        results.push({
+          student_id: student.student_id,
+          anomaly_type: 'late' as AnomalyType,
+          anomaly_date: date,
+          description: `下午迟到 ${lateMinutes} 分钟，首次刷卡 ${formatLocalTime(firstAfternoonSwipe.swipe_time)}`,
+          status: 'pending',
+        });
+      }
+    }
+
+    if (morningSwipes.length === 0 && !isLeaveCovers(leaves, date, true, false)) {
+      const dayOfWeek = new Date(date).getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        results.push({
+          student_id: student.student_id,
+          anomaly_type: 'absent' as AnomalyType,
+          anomaly_date: date,
+          description: '上午缺勤：无刷卡记录且无有效请假',
+          status: 'pending',
+        });
+      }
+    }
+
+    if (afternoonSwipes.length === 0 && !isLeaveCovers(leaves, date, false, true)) {
+      const dayOfWeek = new Date(date).getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        results.push({
+          student_id: student.student_id,
+          anomaly_type: 'absent' as AnomalyType,
+          anomaly_date: date,
+          description: '下午缺勤：无刷卡记录且无有效请假',
+          status: 'pending',
+        });
+      }
+    }
+
+    if (leaves.length > 0) {
+      for (const sw of swipes) {
+        const swT = new Date(sw.swipe_time);
+        for (const lv of leaves) {
+          const lvS = new Date(lv.start_time);
+          const lvE = new Date(lv.end_time);
+          if (swT >= lvS && swT <= lvE) {
+            results.push({
+              student_id: student.student_id,
+              anomaly_type: 'leave_exception' as AnomalyType,
+              anomaly_date: date,
+              description: `请假期间出现刷卡记录：${formatLocalTime(sw.swipe_time)}（请假 ${formatLocalTime(lv.start_time)} - ${formatLocalTime(lv.end_time)}）`,
+              status: 'pending',
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return results;
+}

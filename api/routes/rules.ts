@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { gradeRuleRepo, ruleVersionRepo } from '../repositories';
-import type { GradeRule } from '../../shared/types';
+import { gradeRuleRepo, ruleVersionRepo, computeRuleDiff } from '../repositories';
+import type { GradeRule, RuleVersionDiff } from '../../shared/types';
 
 const router = Router();
 
@@ -54,6 +54,72 @@ router.post('/versions/:id/rollback', (req, res) => {
   ruleVersionRepo.create(current, `回滚前快照（从版本 ${id}）`);
   gradeRuleRepo.saveAll(v.content);
   res.json({ rolled_back: true, version_id: id, rules: v.content });
+});
+
+function resolveRules(idParam: string | undefined): { rules: GradeRule[]; version_id: number | null; description?: string } {
+  if (!idParam || idParam === 'current') {
+    return { rules: gradeRuleRepo.getAll(), version_id: null, description: '当前生效规则' };
+  }
+  const id = parseInt(idParam);
+  if (isNaN(id)) {
+    return { rules: gradeRuleRepo.getAll(), version_id: null, description: '当前生效规则' };
+  }
+  const v = ruleVersionRepo.getById(id);
+  if (!v) {
+    return { rules: gradeRuleRepo.getAll(), version_id: null, description: '当前生效规则' };
+  }
+  return { rules: v.content, version_id: v.id, description: v.description };
+}
+
+router.get('/compare', (req, res) => {
+  const oldId = req.query.old_id as string | undefined;
+  const newId = req.query.new_id as string | undefined;
+
+  const oldRes = resolveRules(oldId);
+  const newRes = resolveRules(newId);
+
+  const diff: RuleVersionDiff = computeRuleDiff(oldRes.rules, newRes.rules, {
+    old_version_id: oldRes.version_id,
+    new_version_id: newRes.version_id,
+    old_description: oldRes.description,
+    new_description: newRes.description,
+  });
+  res.json(diff);
+});
+
+router.get('/compare/:newId', (req, res) => {
+  const newId = req.params.newId;
+  const oldRes = resolveRules(undefined);
+  const newRes = resolveRules(newId);
+
+  const diff: RuleVersionDiff = computeRuleDiff(oldRes.rules, newRes.rules, {
+    old_version_id: oldRes.version_id,
+    new_version_id: newRes.version_id,
+    old_description: oldRes.description,
+    new_description: newRes.description,
+  });
+  res.json(diff);
+});
+
+router.post('/save-dry-run', (req, res) => {
+  const body = Array.isArray(req.body) ? req.body : [];
+  let description = 'dry-run';
+  const rules: GradeRule[] = [];
+  for (const item of body) {
+    if (item && typeof item === 'object' && '__description' in item) {
+      description = String((item as { __description: string }).__description);
+    } else if (item && typeof item === 'object' && 'grade' in item) {
+      rules.push(item as GradeRule);
+    }
+  }
+  const current = gradeRuleRepo.getAll();
+  const diff: RuleVersionDiff = computeRuleDiff(current, rules, {
+    old_version_id: null,
+    new_version_id: null,
+    old_description: '当前生效规则',
+    new_description: description,
+  });
+  res.json(diff);
 });
 
 export default router;

@@ -11,6 +11,14 @@ import type {
   PagedResult,
   TrendDataPoint,
   DistributionDataPoint,
+  RecalcTask,
+  RecalcTaskDetail,
+  RecalcSummary,
+  RecalcDetailItem,
+  DiffChangeType,
+  RuleVersionDiff,
+  OperationLog,
+  AnomalyType,
 } from '@shared/types';
 
 const BASE = '/api';
@@ -171,6 +179,62 @@ export const api = {
         method: 'POST',
       }).then($h);
     },
+    compare(opts?: { old_id?: number | 'current' | string; new_id?: number | 'current' | string }): Promise<RuleVersionDiff> {
+      return fetch(`${BASE}/rules/compare${qs(opts as Record<string, unknown>)}`).then($h);
+    },
+    dryRun(payload: { rules: GradeRule[]; description?: string }): Promise<RuleVersionDiff> {
+      const body = payload.description ? [...payload.rules, { __description: payload.description }] : payload.rules;
+      return fetch(`${BASE}/rules/save-dry-run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then($h);
+    },
+  },
+  recalc: {
+    lockStatus(): Promise<{ ok: boolean; blocking_task?: RecalcTask; running?: RecalcTask[] }> {
+      return fetch(`${BASE}/recalc/lock-status`).then($h);
+    },
+    createTask(payload: {
+      rule_version_id?: number;
+      start_date: string;
+      end_date: string;
+      operator?: string;
+      rules_override?: GradeRule[];
+    }): Promise<{ task_id: number }> {
+      return fetch(`${BASE}/recalc/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).then($h);
+    },
+    listTasks(): Promise<RecalcTask[]> {
+      return fetch(`${BASE}/recalc/tasks`).then($h);
+    },
+    getTask(id: number): Promise<RecalcTaskDetail> {
+      return fetch(`${BASE}/recalc/tasks/${id}`).then($h);
+    },
+    getSummary(id: number): Promise<RecalcSummary> {
+      return fetch(`${BASE}/recalc/tasks/${id}/summary`).then($h);
+    },
+    getDetails(id: number, opts?: {
+      change_type?: DiffChangeType;
+      anomaly_type?: AnomalyType;
+      grade?: string;
+      class_name?: string;
+      page?: number;
+      page_size?: number;
+    }): Promise<PagedResult<RecalcDetailItem>> {
+      return fetch(`${BASE}/recalc/tasks/${id}/details${qs(opts as Record<string, unknown>)}`).then($h);
+    },
+    cancelTask(id: number): Promise<void> {
+      return fetch(`${BASE}/recalc/tasks/${id}/cancel`, {
+        method: 'POST',
+      }).then($h);
+    },
+    logs(): Promise<OperationLog[]> {
+      return fetch(`${BASE}/recalc/logs`).then($h);
+    },
   },
   export: {
     anomalies(filters: AnomalyFilters = {}): Promise<string> {
@@ -178,6 +242,12 @@ export const api = {
     },
     summary(filters: AnomalyFilters = {}): Promise<string> {
       return fetch(`${BASE}/export/summary${qs(filters as Record<string, unknown>)}`).then($h);
+    },
+    recalcDiff(taskId: number): Promise<string> {
+      return fetch(`${BASE}/export/recalc/${taskId}/diff`).then($h);
+    },
+    recalcSummary(taskId: number): Promise<string> {
+      return fetch(`${BASE}/export/recalc/${taskId}/summary`).then($h);
     },
   },
   statistics: {

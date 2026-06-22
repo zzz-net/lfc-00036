@@ -1,5 +1,6 @@
 import db from './db';
-import type { AnomalyFilters } from '../shared/types';
+import { recalcDetailRepo, appStateRepo, recalcTaskRepo } from './repositories';
+import type { AnomalyFilters, RecalcSummary, DiffChangeType, AnomalyStatus } from '../shared/types';
 
 function csvEscape(v: unknown): string {
   if (v === null || v === undefined) return '';
@@ -117,5 +118,116 @@ export function exportSummaryCsv(filters: AnomalyFilters = {}): string {
       csvEscape(r.total),
     ].join(','));
   }
+  return '\uFEFF' + lines.join('\n');
+}
+
+const CHANGE_TYPE_MAP: Record<DiffChangeType, string> = {
+  added: '新增',
+  removed: '消失',
+  kept: '保留',
+  kept_modified: '保留(描述变更)',
+};
+
+const ANOMALY_TYPE_MAP_EXPORT: Record<string, string> = {
+  late: '迟到',
+  absent: '缺勤',
+  duplicate_swipe: '重复刷卡',
+  leave_exception: '请假例外',
+};
+
+const ANOMALY_STATUS_MAP_EXPORT: Record<AnomalyStatus, string> = {
+  pending: '待处理',
+  confirmed: '已确认',
+  reverted: '已回退',
+  dismissed: '已忽略',
+};
+
+export function exportRecalcDiffCsv(taskId: number): string {
+  const items = recalcDetailRepo.getAll(taskId);
+
+  const headers = ['变动类型', '日期', '学号', '姓名', '年级', '班级', '异常类型', '原描述', '新描述', '原状态', '新状态'];
+  const lines = [headers.join(',')];
+
+  for (const r of items) {
+    lines.push([
+      csvEscape(CHANGE_TYPE_MAP[r.change_type] || r.change_type),
+      csvEscape(r.anomaly_date),
+      csvEscape(r.student_id),
+      csvEscape(r.student_name),
+      csvEscape(r.grade),
+      csvEscape(r.class_name),
+      csvEscape(ANOMALY_TYPE_MAP_EXPORT[r.anomaly_type] || r.anomaly_type),
+      csvEscape(r.old_description),
+      csvEscape(r.new_description),
+      csvEscape(r.old_status ? ANOMALY_STATUS_MAP_EXPORT[r.old_status] || r.old_status : ''),
+      csvEscape(r.new_status ? ANOMALY_STATUS_MAP_EXPORT[r.new_status] || r.new_status : ''),
+    ].join(','));
+  }
+  return '\uFEFF' + lines.join('\n');
+}
+
+export function exportRecalcSummaryCsv(taskId: number): string {
+  const task = recalcTaskRepo.getById(taskId);
+  const stateSummary = appStateRepo.get<RecalcSummary>(`recalc_summary_${taskId}`);
+
+  let summary: RecalcSummary;
+  if (stateSummary) {
+    summary = stateSummary;
+  } else {
+    const oldCount = task ? db.prepare(
+      "SELECT COUNT(*) as cnt FROM anomalies WHERE anomaly_date >= ? AND anomaly_date <= ?"
+    ).get(task.start_date, task.end_date) as { cnt: number } : { cnt: 0 };
+    summary = recalcDetailRepo.computeSummary(taskId, oldCount.cnt, 0);
+  }
+
+  const lines: string[] = [];
+
+  lines.push('【整体概览】');
+  lines.push(['指标', '数量'].join(','));
+  lines.push(['重算前异常总数', summary.total_before].join(','));
+  lines.push(['重算后异常总数', summary.total_after].join(','));
+  lines.push(['新增异常数', summary.added].join(','));
+  lines.push(['消失异常数', summary.removed].join(','));
+  lines.push(['保留(含变更)', summary.kept + summary.kept_modified].join(','));
+  lines.push(['  其中描述/状态变更', summary.kept_modified].join(','));
+  lines.push(['  其中完全一致', summary.kept].join(','));
+  lines.push('');
+
+  lines.push('【按年级维度】');
+  lines.push(['年级', '新增', '消失', '保留'].join(','));
+  for (const g of summary.by_grade) {
+    lines.push([
+      csvEscape(g.grade),
+      g.added,
+      g.removed,
+      g.kept,
+    ].join(','));
+  }
+  lines.push('');
+
+  lines.push('【按班级维度】');
+  lines.push(['年级', '班级', '新增', '消失', '保留'].join(','));
+  for (const c of summary.by_class) {
+    lines.push([
+      csvEscape(c.grade),
+      csvEscape(c.class_name),
+      c.added,
+      c.removed,
+      c.kept,
+    ].join(','));
+  }
+  lines.push('');
+
+  lines.push('【按异常类型维度】');
+  lines.push(['异常类型', '新增', '消失', '保留'].join(','));
+  for (const t of summary.by_type) {
+    lines.push([
+      csvEscape(ANOMALY_TYPE_MAP_EXPORT[t.anomaly_type] || t.anomaly_type),
+      t.added,
+      t.removed,
+      t.kept,
+    ].join(','));
+  }
+
   return '\uFEFF' + lines.join('\n');
 }

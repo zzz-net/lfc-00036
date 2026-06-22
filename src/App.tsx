@@ -5,6 +5,7 @@ import DataImport from "@/pages/DataImport";
 import AnomalyWorkbench from "@/pages/AnomalyWorkbench";
 import RuleConfig from "@/pages/RuleConfig";
 import Statistics from "@/pages/Statistics";
+import RuleImpact from "@/pages/RuleImpact";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
           <Route path="/anomalies" element={<AnomalyWorkbench />} />
           <Route path="/rules" element={<RuleConfig />} />
           <Route path="/reports" element={<Statistics />} />
+          <Route path="/impact" element={<RuleImpact />} />
         </Route>
       </Routes>
     </Router>

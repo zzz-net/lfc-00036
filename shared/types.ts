@@ -116,3 +116,118 @@ export interface DistributionDataPoint {
   count: number;
   type_breakdown: Record<AnomalyType, number>;
 }
+
+export type RuleFieldKey = 'morning_start_time' | 'late_tolerance_minutes' | 'afternoon_start_time' | 'absent_window_minutes';
+
+export interface RuleFieldDiff {
+  field: RuleFieldKey;
+  field_label: string;
+  old_value: string | number | null;
+  new_value: string | number | null;
+  changed: boolean;
+}
+
+export interface GradeRuleDiff {
+  grade: string;
+  exists_in_old: boolean;
+  exists_in_new: boolean;
+  status: 'added' | 'removed' | 'modified' | 'unchanged';
+  fields: RuleFieldDiff[];
+}
+
+export interface RuleVersionDiff {
+  old_version_id: number | null;
+  new_version_id: number | null;
+  old_description?: string;
+  new_description?: string;
+  summary: {
+    total_grades: number;
+    added: number;
+    removed: number;
+    modified: number;
+    unchanged: number;
+  };
+  grades: GradeRuleDiff[];
+}
+
+export type RecalcTaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface RecalcTask {
+  id: number;
+  rule_version_id: number | null;
+  rule_snapshot: GradeRule[];
+  start_date: string;
+  end_date: string;
+  status: RecalcTaskStatus;
+  operator: string;
+  error_message?: string;
+  created_at: string;
+  started_at?: string;
+  finished_at?: string;
+  progress_percent: number;
+  progress_message?: string;
+}
+
+export type DiffChangeType = 'added' | 'removed' | 'kept' | 'kept_modified';
+
+export interface RecalcSummary {
+  task_id: number;
+  total_before: number;
+  total_after: number;
+  added: number;
+  removed: number;
+  kept: number;
+  kept_modified: number;
+  by_grade: Array<{
+    grade: string;
+    added: number;
+    removed: number;
+    kept: number;
+  }>;
+  by_class: Array<{
+    grade: string;
+    class_name: string;
+    added: number;
+    removed: number;
+    kept: number;
+  }>;
+  by_type: Array<{
+    anomaly_type: AnomalyType;
+    added: number;
+    removed: number;
+    kept: number;
+  }>;
+}
+
+export interface RecalcDetailItem {
+  id: number;
+  task_id: number;
+  change_type: DiffChangeType;
+  student_id: string;
+  student_name?: string;
+  grade?: string;
+  class_name?: string;
+  anomaly_type: AnomalyType;
+  anomaly_date: string;
+  old_description?: string;
+  new_description?: string;
+  old_status?: AnomalyStatus;
+  new_status?: AnomalyStatus;
+  old_anomaly_id?: number;
+  new_anomaly_id?: number;
+}
+
+export interface OperationLog {
+  id: number;
+  action: string;
+  operator: string;
+  target_type: string;
+  target_id?: number | string;
+  summary: string;
+  detail_json?: string;
+  created_at: string;
+}
+
+export interface RecalcTaskDetail extends RecalcTask {
+  summary?: RecalcSummary;
+}

@@ -95,7 +95,60 @@ CREATE TABLE IF NOT EXISTS app_state (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS recalc_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_version_id INTEGER,
+    rule_snapshot TEXT NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    operator TEXT NOT NULL DEFAULT '管理员',
+    error_message TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME,
+    finished_at DATETIME,
+    progress_percent INTEGER NOT NULL DEFAULT 0,
+    progress_message TEXT,
+    FOREIGN KEY (rule_version_id) REFERENCES rule_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS recalc_details (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    change_type TEXT NOT NULL,
+    student_id TEXT NOT NULL,
+    student_name TEXT,
+    grade TEXT,
+    class_name TEXT,
+    anomaly_type TEXT NOT NULL,
+    anomaly_date DATE NOT NULL,
+    old_description TEXT,
+    new_description TEXT,
+    old_status TEXT,
+    new_status TEXT,
+    old_anomaly_id INTEGER,
+    new_anomaly_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES recalc_tasks(id),
+    FOREIGN KEY (student_id) REFERENCES students(student_id)
+);
+
+CREATE TABLE IF NOT EXISTS operation_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    operator TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT,
+    summary TEXT NOT NULL,
+    detail_json TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_swipe_unique ON swipe_records(student_id, swipe_time);
+CREATE INDEX IF NOT EXISTS idx_recalc_status ON recalc_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_recalc_details_task ON recalc_details(task_id);
+CREATE INDEX IF NOT EXISTS idx_recalc_details_change ON recalc_details(task_id, change_type);
+CREATE INDEX IF NOT EXISTS idx_oplogs_created ON operation_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_swipe_student_time ON swipe_records(student_id, swipe_time);
 CREATE INDEX IF NOT EXISTS idx_leave_student_time ON leave_records(student_id, start_time, end_time);
 CREATE INDEX IF NOT EXISTS idx_anomaly_date ON anomalies(anomaly_date);
