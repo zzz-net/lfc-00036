@@ -122,7 +122,7 @@ export function loadSampleData(): {
           t.setHours(10, Math.floor(Math.random() * 60), 0, 0);
           swipeRecords.push({
             student_id: student.student_id,
-            swipe_time: t.toISOString(),
+            swipe_time: isoDate(t),
             device_location: '校门口',
           });
         }
@@ -142,7 +142,7 @@ export function loadSampleData(): {
         t.setHours(h, m, 0, 0);
         swipeRecords.push({
           student_id: student.student_id,
-          swipe_time: t.toISOString(),
+          swipe_time: isoDate(t),
           device_location: '校门口',
         });
 
@@ -151,7 +151,7 @@ export function loadSampleData(): {
           t2.setSeconds(t2.getSeconds() + 20);
           swipeRecords.push({
             student_id: student.student_id,
-            swipe_time: t2.toISOString(),
+            swipe_time: isoDate(t2),
             device_location: '校门口',
           });
         }
@@ -170,7 +170,7 @@ export function loadSampleData(): {
         t.setHours(h, m, 0, 0);
         swipeRecords.push({
           student_id: student.student_id,
-          swipe_time: t.toISOString(),
+          swipe_time: isoDate(t),
           device_location: '校门口',
         });
       }

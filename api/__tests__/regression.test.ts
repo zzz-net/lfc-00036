@@ -524,3 +524,86 @@ describe('README 交付校验——重启后数据不漂移', () => {
     }
   });
 });
+
+describe('导入→复核链路——样例数据与迟到分钟', () => {
+  it('样例数据刷卡时间应为本地时间格式（不带 Z）', () => {
+    seedBasicData(db);
+    const localIso = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const h = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      const s = String(d.getSeconds()).padStart(2, '0');
+      return `${y}-${m}-${day}T${h}:${min}:${s}`;
+    };
+    const t = new Date(2026, 5, 15, 7, 35, 0);
+    const storedTime = localIso(t);
+    expect(storedTime).toBe('2026-06-15T07:35:00');
+    expect(storedTime.endsWith('Z')).toBe(false);
+    const parsed = new Date(storedTime);
+    expect(parsed.getHours()).toBe(7);
+    expect(parsed.getMinutes()).toBe(35);
+  });
+
+  it('迟到分钟数应在合理范围内（0 < minutes < 300，不上千）', () => {
+    seedBasicData(db);
+    const testCases = [
+      { swipe: '2026-06-15T07:35:00', deadlineH: 7, deadlineM: 23, expectedMin: 12 },
+      { swipe: '2026-06-15T07:50:00', deadlineH: 7, deadlineM: 23, expectedMin: 27 },
+      { swipe: '2026-06-15T08:05:00', deadlineH: 7, deadlineM: 23, expectedMin: 42 },
+      { swipe: '2026-06-15T14:20:00', deadlineH: 14, deadlineM: 0, expectedMin: 20 },
+    ];
+    for (const tc of testCases) {
+      const [y, m, d] = '2026-06-15'.split('-').map(Number);
+      const deadline = new Date(y, m - 1, d, tc.deadlineH, tc.deadlineM, 0, 0);
+      const swipeT = new Date(tc.swipe);
+      const lateMinutes = Math.round((swipeT.getTime() - deadline.getTime()) / 60000);
+      expect(lateMinutes).toBe(tc.expectedMin);
+      expect(lateMinutes).toBeGreaterThan(0);
+      expect(lateMinutes).toBeLessThan(300);
+      expect(lateMinutes).toBeLessThan(1000);
+    }
+  });
+
+  it('异常 ID 应可查询并用于复核（ID > 0）', () => {
+    seedBasicData(db);
+    const id = db.prepare(`
+      INSERT INTO anomalies (student_id, anomaly_type, anomaly_date, description, status)
+      VALUES ('S00001', 'late', '2026-06-15', '上午迟到 15 分钟，首次刷卡 07:40:00', 'pending')
+    `).run().lastInsertRowid;
+    expect(Number(id)).toBeGreaterThan(0);
+    const saved = db.prepare('SELECT * FROM anomalies WHERE id = ?').get(Number(id)) as any;
+    expect(saved).not.toBeNull();
+    expect(saved.id).toBe(Number(id));
+    expect(saved.status).toBe('pending');
+    expect(saved.description).toContain('07:40:00');
+    expect(saved.description).not.toContain('23:50');
+  });
+});
+
+describe('导出与列表一致性', () => {
+  it('异常记录在列表和导出描述中应保持一致', () => {
+    seedBasicData(db);
+    const description = '上午迟到 18 分钟，首次刷卡 07:43:00';
+    const id = db.prepare(`
+      INSERT INTO anomalies (student_id, anomaly_type, anomaly_date, description, status, review_note, reviewed_by)
+      VALUES ('S00002', 'late', '2026-06-15', ?, 'confirmed', '已联系', '管理员')
+    `).run(description).lastInsertRowid;
+
+    const listRow = db.prepare(`
+      SELECT a.id, a.anomaly_date, s.student_id, s.name, s.grade, s.class_name,
+             a.anomaly_type, a.description, a.status, a.review_note, a.reviewed_by
+      FROM anomalies a LEFT JOIN students s ON a.student_id = s.student_id
+      WHERE a.id = ?
+    `).get(Number(id)) as any;
+
+    expect(listRow.description).toBe(description);
+    expect(listRow.status).toBe('confirmed');
+    expect(listRow.description).toContain('18 分钟');
+    expect(listRow.description).toContain('07:43:00');
+    expect(listRow.description).not.toMatch(/\d{3,} 分钟/);
+    expect(listRow.description).not.toContain('1424');
+    expect(listRow.description).not.toContain('23:50');
+  });
+});

@@ -153,18 +153,23 @@ curl "http://localhost:3002/api/anomalies?start_date=2026-06-20&end_date=2026-06
 ### 3. 复核异常
 
 ```bash
+# 先查询获取一个真实存在的异常 ID（取第 1 条待处理异常）
+curl "http://localhost:3002/api/anomalies?status=pending&page=1&page_size=1"
+# 从返回的 data[0].id 拿到真实编号，例如 42
+# 将下面命令中的 <ANOMALY_ID> 替换为查询到的真实编号
+
 # 确认异常
-curl -X POST http://localhost:3002/api/anomalies/1/review \
+curl -X POST http://localhost:3002/api/anomalies/<ANOMALY_ID>/review \
   -H "Content-Type: application/json" \
   -d '{"action":"confirm","note":"迟到属实，已联系家长"}'
 
 # 忽略异常
-curl -X POST http://localhost:3002/api/anomalies/1/review \
+curl -X POST http://localhost:3002/api/anomalies/<ANOMALY_ID>/review \
   -H "Content-Type: application/json" \
   -d '{"action":"dismiss","note":"系统误判，学生已请假"}'
 
 # 回退复核（恢复到上一状态）
-curl -X POST http://localhost:3002/api/anomalies/1/review \
+curl -X POST http://localhost:3002/api/anomalies/<ANOMALY_ID>/review \
   -H "Content-Type: application/json" \
   -d '{"action":"revert","note":"复核有误，回退"}'
 ```
